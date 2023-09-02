@@ -1,4 +1,5 @@
-# Implementation of the RETRO-FORMER implemenation
+# RETROFORMER: RETROSPECTIVE LARGE LANGUAGE
+AGENTS WITH POLICY GRADIENT OPTIMIZATION - Implementation
 
 - The retroformer model is a vacuna 7B 32k Longchat model using the fastchat API. 
 
