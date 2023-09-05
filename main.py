@@ -9,20 +9,6 @@ from actor import Actor
 from ppo import PPOTrainer
 from retro import Retro
 
-
-def setup(rank, world_size):
-    # Setup for distributed environment
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
-
-    # Initialize the distributed environment
-    dist.init_process_group("gloo", rank=rank, world_size=world_size)
-
-    # Call the main function of your script
-rank = 0
-world_size = 1
-mp.spawn(setup, args=(world_size), nprocs=world_size, join=True)
-
 # Prepare the hotpotQA data#
 hotpot = joblib.load('./data/hotpot-qa-distractor-sample.joblib').reset_index(drop = True)
 hotpot['supporting_paragraphs'] = None
@@ -52,7 +38,7 @@ retroformer = Retro(
     max_batch_size=6
 )
 
-number_of_tasks = 10 # amount of tasks (hotpotQA questions)
+number_of_tasks = 5 # amount of tasks (hotpotQA questions)
 number_of_trails = 1 # amount of policy fine tunes per task
 
 ppo = PPOTrainer(

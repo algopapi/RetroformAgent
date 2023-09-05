@@ -87,13 +87,11 @@ class PPOTrainer:
             print("\ncurrent:",  self.rewards[trail])
             
             #reflections = self.get_reflections(trajectories)
+            #Reflection rating = G_{k,i+1} - G{k, i}
+            #reflection_ratings = self.rewards[trail] - self.rewards[trail - 1]
+            #print("reflection ratings:", reflection_ratings)
 
-
-            # Reflection rating = G_{k,i+1} - G{k, i}
-            reflection_ratings = self.rewards[trail] - self.rewards[trail - 1]
-            print("reflection ratings:", reflection_ratings)
-
-
+            reflections = self.retroformer.get_reflections(trajectories, self.rewards[trail])
 
             # Fine tune the policy on gathered trajectories.
             

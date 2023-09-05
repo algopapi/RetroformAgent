@@ -4,6 +4,8 @@ from langchain.agents import AgentExecutor, ZeroShotAgent
 from langchain.agents.mrkl.prompt import FORMAT_INSTRUCTIONS, PREFIX
 from langchain.agents.react.base import DocstoreExplorer
 from langchain.chat_models import ChatOpenAI
+from langchain.load.dump import dumps
+from langchain.schema import AgentAction
 from langchain.tools import Tool
 
 load_dotenv(find_dotenv())
@@ -38,7 +40,7 @@ class Actor:
       Tool(
         name="Lookup",
         func=self.docstore.lookup,
-        description="useful for when you need to ask with lookup (strictly use after succesful search)"
+        description="(only use after a search) useful for when you need to ask with lookup"
       )
     ]
 
@@ -54,7 +56,9 @@ class Actor:
     self.tool_names = [tool.name for tool in self.tools]
     self.agent = ZeroShotAgent(llm_chain=self.llm_chain,
                                allowed_tools=self.tool_names,
-                               max_iterations=10)
+                               max_iterations=10,
+                               return_intermediate_steps=True
+                               )
     
     self.short_term_memory = [] # trajectory history t_i of current episode i
     self.long_term_memory = [] # The reflection responses that summearize prior failed attemps
@@ -109,26 +113,63 @@ class Actor:
         "context": self.context,
         "policy": self.retroformer_prompt,
         "long_term_memory": self.format_longterm_memory(),
-        "output": "Performed a lookup without a search.",
-        "intermediate_steps": [],
-        }
+        "output": "No answer because lookup without a search.",
+        "intermediate_steps": [(AgentAction(tool='Fail', tool_input='None', log="I Tried to do a lookupt before i did a search. I should not do this."), None)]
+      }
 
+    prompt = ""
+    prompt += f"Question: {self.question}\n\n"
+    prompt +=  self.agent._construct_scratchpad(output["intermediate_steps"])
     self.episode += 1
-    print("output", output)
-    return self.trail_id, output, self.answer
+    # print("output", output)
+
+    print("\n\nPrompt", prompt, "\n\n")
+    return self.trail_id, output, prompt, self.answer
 
   def test(self):
     """ 
       Perform run under the current policy.
     """
+    
     agent_executor = AgentExecutor.from_agent_and_tools(
-      agent=self.agent, tools=self.tools, verbose=True,
+      agent=self.agent,
+      tools=self.tools,
+      verbose=True,
+      handle_parsing_errors=self._handle_error,
+      return_intermediate_steps=True,
     )
     question = "Which harry potter film series main stars debuted in stage acting first?"
-    answer = agent_executor.run(input=question, policy="test policy", long_term_memory=self.format_longterm_memory(), return_intermediate_steps=True)
-    print("Answer:", answer)
+    try: 
+      output = agent_executor(
+            {
+              "input": question,
+              "context": self.context,
+              "policy": self.retroformer_prompt,
+              "long_term_memory": self.format_longterm_memory()
+            }
+          )
+    except ValueError as error:
+      print(error)
+    print("output", output)
+
+    # print("Output:", dumps(output, pretty=True))
+    prompt = self.agent._construct_scratchpad(output["intermediate_steps"])
+    
+    print("Prompt: \n\n")
+    print(prompt)
+    print("\n\n")
+
 
 
 if __name__ == "__main__":
-  actor = Actor(1, 1)
+  trail_id = 0
+  task = {}
+  task = {
+    "question": "Which harry potter film series main stars debuted in stage acting first?",
+    "answer": "Daniel Radcliffe",
+    "supporting_paragraphs": "harry potter is a movie about a guy with a scar on his head"
+  }
+
+  actor = Actor(trail_id, task)
   actor.test()
+  
