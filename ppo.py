@@ -1,97 +1,100 @@
-from actor import Actor
-from utils import normalize_answer
+import pprint
+from typing import Dict
 
+from actor import Actor
+
+pp = pprint.PrettyPrinter(indent=4)
+
+
+class ReplayBuffer:
+    def __init__(self):
+        self.buffer = {}
+    
+    def add(self, k, i, x, y, G):
+        """
+        k: task_id
+        i: trial_id
+        x: reflection prompt
+        y: reflection response
+        G: reward 
+        """
+        if k not in self.buffer:
+            self.buffer[k] = {}
+        self.buffer[k][i] = (x, y, G)
+
+    def get(self, k, i):
+        return self.buffer[k][i]
+    
+    def __str__(self):
+        return str(self.buffer)
+    
 
 class PPOTrainer:
-    def __init__(self, actor_model, actor_model_temp, retroformer, hotpotqa, n_trails, n_tasks):
+    def __init__(self, actor_model, actor_model_temp, retroformer, hotpotqa, with_context, n_trials, n_tasks, f1_threshold):
         self.actor_model = actor_model # Actor
         self.actor_model_temp = actor_model_temp # Actor temperature
         self.retroformer = retroformer # Retrospective model
         self.hotpotqa = hotpotqa
-        self.n_trails = n_trails # Number of tasks to solve
+        self.with_context = with_context
+        self.n_trials = n_trials # Number of tasks to solve
         self.n_tasks = n_tasks # number of agents per trail
         self.selected_tasks = self.hotpotqa[:self.n_tasks]
-        print("selected tasks", self.selected_tasks)
-        self.agents = [Actor(trail_id, task, self.actor_model, self.actor_model_temp)
-               for trail_id, task in self.selected_tasks.iterrows()]
+        self.f1_threshold = 0.7
+        self.agents = [Actor(task_id, task, self.with_context, self.actor_model, self.actor_model_temp)
+               for task_id, task in self.selected_tasks.iterrows()]
         
-        self.rewards = [] # G_{k,i} for each trail i and task k
+        self.past_trajectories = {} #(trial, trajectory) 
+        self.rewards = [] # (task_id, G_{k,i}) for each trail i and task k
+        self.replay_buffer = ReplayBuffer() # Triplet (reflection prompt X_{k,i}, response: y_{k,i}, Return:G_{k,i}), trial i task k
        
-
-    def f1_score(self, reference, candidate):
-        """
-        Calculate the F1 score between a reference answer and a candidate answer.
-        
-        Args:
-        - reference (str): the reference (or gold standard) answer
-        - candidate (str): the model-generated answer
-        
-        Returns:
-        - float: the F1 score between the two answers
-        """
-        
-        # Tokenize the answers into words
-        reference_tokens = set(reference.split())
-        candidate_tokens = set(candidate.split())
-        
-        # Calculate the number of shared tokens between the two answers
-        common = reference_tokens.intersection(candidate_tokens)
-        
-        # If there are no shared tokens, the F1 score is 0
-        if not common:
-            return 0.0
-    
-        # Calculate precision and recall
-        precision = len(common) / len(candidate_tokens)
-        recall = len(common) / len(reference_tokens)
-        
-        # Calculate the F1 score
-        f1 = 2 * (precision * recall) / (precision + recall)
-        
-        return f1
-
     def get_tasks(self):
         """get 'batch_size' hotpot questions from hotpotqa"""
-        hotpot_sample = self.hotpotqa.sample(self.n_trails)
+        hotpot_sample = self.hotpotqa.sample(self.n_trials)
 
-        print(" hotpot sample", hotpot_sample)
+        print("Hotpot sample", hotpot_sample)
 
-    def gather_trajectories(self) -> list:
+    def gather_trajectories(self) -> Dict[int, Dict]:
         """ gathers answers from K agents under the current policy"""
-        answers = [agent.rollout() for agent in self.agents]
-        return answers
+        trajectories = [agent.rollout() for agent in self.agents]
+        return {tr["task_id"]: {"response": tr["response"], "reflection_prompt": tr["reflection_prompt"], "f1_score": tr["f1_score"]} for tr in trajectories}
 
-    def get_rewards(self, trajectories) -> list:
-        """ get the returns from the trajectories"""
-        rewards = []
-        for trail_id, output, answer in trajectories:
-            final_answer = output['output']
-            f1_score = self.f1_score(normalize_answer(answer), normalize_answer(final_answer))
-            rewards.append(f1_score)
-        return rewards
-    
-    def get_reflections(self, trajectories) -> list[str]:
-        """get the reflections from the trajectories"""
-        for trail_id, output, answer in trajectories:
-            pass
 
     def train(self):
-        for trail in range(self.n_trails):
+        for trial in range(self.n_trials):
             # Gather N_trails trajectories under current policy
-            trajectories = self.gather_trajectories()
-            print("gathered trajectories:", trajectories)
+            trajectories = self.gather_trajectories() # dict (task_id, response, reflection_prompt, rewards)
 
-            # Get the rewards from the answers from current trail
-            self.rewards.append(self.get_rewards(trajectories))
-            print("self.rewards", self.rewards)
-            print("\ncurrent:",  self.rewards[trail])
-            
+            print("Trajectories")
+            pp.pprint(trajectories)
+
+            # Store trajectories
+            self.past_trajectories[trial] = trajectories # store the trajectories for the current trial.
+        
+            # Get the reflection
+            reflections = self.retroformer.generate_reflections(trajectories) #(task_id, reflection)
+
+            # pass the reflection to the agent (with corresponding task_id)
+            # and add the triplet to the replay buffer
+            for agent in self.agents:
+                agent_reflection = reflections[agent.task_id]
+                agent.update_policy(agent_reflection)
+                self.replay_buffer.add(agent.task_id,
+                                       trial,
+                                       trajectories[agent.task_id]["reflection_prompt"], # reflection prompt
+                                       agent_reflection,
+                                       trajectories[agent.task_id]["f1_score"]) # the reward
+                
+
             #reflections = self.get_reflections(trajectories)
             #Reflection rating = G_{k,i+1} - G{k, i}
             #reflection_ratings = self.rewards[trail] - self.rewards[trail - 1]
             #print("reflection ratings:", reflection_ratings)
 
-            reflections = self.retroformer.get_reflections(trajectories, self.rewards[trail])
-
-            # Fine tune the policy on gathered trajectories.
+            # print reflections
+            print("Reflections")
+            print(reflections)
             
+
+                
+
+            # Fine tune!!

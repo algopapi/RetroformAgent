@@ -26,27 +26,25 @@ for ind, row in hotpot.iterrows():
 # create an instance of the ppo trainer
 ACTOR_MODEL = "gpt-4"
 ACTOR_MODEL_TEMP = 0
+with_context = True
 
 # Instantiate the retroformer model
 retroformer = Retro(
-    ckpt_dir="./llama/llama-2-7b",
-    tokenizer_path="./llama/tokenizer.model",
     temperature=0,
-    top_p=0.9,
-    max_seq_len=512,
-    max_gen_len=64,
-    max_batch_size=6
+    with_context=with_context
 )
 
-number_of_tasks = 5 # amount of tasks (hotpotQA questions)
-number_of_trails = 1 # amount of policy fine tunes per task
+number_of_tasks = 2 # amount of tasks (hotpotQA questions)
+number_of_trials = 1 # amount of policy fine tunes per task
 
-ppo = PPOTrainer(
-                 n_tasks=number_of_tasks,
-                 n_trails=number_of_trails,
+f1_threshold = 0.7
+
+ppo = PPOTrainer(n_tasks=number_of_tasks,
+                 n_trials=number_of_trials,
                  actor_model=ACTOR_MODEL,
                  actor_model_temp=ACTOR_MODEL_TEMP,
                  retroformer=retroformer,
-                 hotpotqa=hotpot
-                )
+                 hotpotqa=hotpot,
+                 with_context=with_context,
+                 f1_threshold=f1_threshold)
 ppo.train()

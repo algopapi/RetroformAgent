@@ -20,5 +20,5 @@ Stack:
 To start the locally hosted server:
 
 python3 -m fastchat.serve.controller
-python3 -m fastchat.serve.model_worker --model-names "gpt-3.5-turbo,text-davinci-003,text-embedding-ada-002" --model-path lmsys/longchat-7b-32k
+python3 -m fastchat.serve.model_worker --model-names "gpt-3.5-turbo,text-davinci-003,text-embedding-ada-002" --model-path lmsys/vicuna-7b-v1.5
 python3 -m fastchat.serve.openai_api_server --host localhost --port 8000
